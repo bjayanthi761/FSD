@@ -2,153 +2,210 @@
 require_once 'includes/config.php';
 require_once 'includes/auth.php';
 
+if (!isLoggedIn()) {
+    header("Location: login.php");
+    exit();
+}
+
+$user_id = $_SESSION['user_id'];
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
 $category = isset($_GET['category']) ? mysqli_real_escape_string($conn, $_GET['category']) : '';
+$price_filter = isset($_GET['price']) ? mysqli_real_escape_string($conn, $_GET['price']) : '';
 
-// Build query with category name
-$sql = "SELECT c.*, u.username as instructor_name, cat.name as category_name 
+// Build query
+$sql = "SELECT c.*, u.username as instructor_name, cat.name as category_name,
+        CASE WHEN e.id IS NOT NULL THEN 1 ELSE 0 END as is_enrolled
         FROM courses c 
         JOIN users u ON c.instructor_id = u.id 
-        LEFT JOIN categories cat ON c.category_id = cat.id 
+        LEFT JOIN categories cat ON c.category_id = cat.id
+        LEFT JOIN enrollments e ON c.id = e.course_id AND e.user_id = ?
         WHERE c.is_published = TRUE";
 
+$params = [$user_id];
+$types = "i";
+
 if (!empty($search)) {
-    $sql .= " AND (c.title LIKE '%$search%' OR c.description LIKE '%$search%')";
+    $sql .= " AND (c.title LIKE ? OR c.description LIKE ?)";
+    $search_param = "%$search%";
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $types .= "ss";
 }
 
 if (!empty($category)) {
-    $sql .= " AND cat.name = '$category'";
+    $sql .= " AND cat.name = ?";
+    $params[] = $category;
+    $types .= "s";
 }
 
-$sql .= " ORDER BY c.created_at DESC";
+if ($price_filter == 'free') {
+    $sql .= " AND c.price = 0";
+} elseif ($price_filter == 'paid') {
+    $sql .= " AND c.price > 0";
+}
 
-$result = mysqli_query($conn, $sql);
+$sql .= " ORDER BY c.price ASC, c.created_at DESC";
+
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, $types, ...$params);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$total_courses = mysqli_num_rows($result);
 ?>
 
 <?php include 'header.php'; ?>
 
 <style>
-    .courses-wrapper {
-        min-height: calc(100vh - 200px);
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 3rem 0;
+    .marketplace-wrapper {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #f5f7fa 0%, #e9edf2 100%);
+        padding: 2rem 0;
     }
     
-    .courses-container {
-        max-width: 1200px;
+    .marketplace-container {
+        max-width: 1280px;
         margin: 0 auto;
-        padding: 0 20px;
+        padding: 0 2rem;
+    }
+    
+    .page-header {
+        text-align: center;
+        margin-bottom: 2rem;
     }
     
     .page-title {
-        text-align: center;
-        color: white;
-        margin-bottom: 2.5rem;
-        font-size: 2.8rem;
+        font-size: 2rem;
         font-weight: 700;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        color: #1f2937;
+        margin-bottom: 0.5rem;
     }
     
-    .search-section {
+    .page-subtitle {
+        color: #6b7280;
+        font-size: 1rem;
+    }
+    
+    .filter-section {
         background: white;
-        padding: 2rem;
-        border-radius: 15px;
-        margin-bottom: 3rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        border-radius: 20px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     
-    .search-form {
-        display: grid;
-        grid-template-columns: 1fr auto auto;
+    .filter-form {
+        display: flex;
         gap: 1rem;
-        align-items: end;
+        flex-wrap: wrap;
+        align-items: flex-end;
     }
     
-    .form-group {
-        margin-bottom: 0;
+    .filter-group {
+        flex: 1;
+        min-width: 180px;
     }
     
-    .form-label {
+    .filter-group label {
         display: block;
         margin-bottom: 0.5rem;
-        color: #555;
+        color: #374151;
         font-weight: 500;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
     }
     
-    .form-input {
+    .filter-input, .filter-select {
         width: 100%;
-        padding: 0.8rem 1rem;
-        border: 2px solid #e0e0e0;
-        border-radius: 8px;
-        font-size: 1rem;
-        transition: border-color 0.3s;
-        box-sizing: border-box;
+        padding: 0.7rem 1rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        background: #f8fafc;
     }
     
-    .form-input:focus {
+    .filter-input:focus, .filter-select:focus {
         outline: none;
-        border-color: #667eea;
-    }
-    
-    .form-select {
-        width: 200px;
-        padding: 0.8rem 1rem;
-        border: 2px solid #e0e0e0;
-        border-radius: 8px;
-        font-size: 1rem;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
         background: white;
-        cursor: pointer;
     }
     
-    .search-btn {
-        padding: 0.8rem 2rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    .filter-btn {
+        padding: 0.7rem 1.5rem;
+        background: #2563eb;
         color: white;
         border: none;
-        border-radius: 8px;
-        font-size: 1rem;
-        font-weight: 600;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        font-weight: 500;
         cursor: pointer;
-        transition: transform 0.3s, box-shadow 0.3s;
-        height: 48px;
-        align-self: end;
+        transition: all 0.2s;
+        height: 44px;
     }
     
-    .search-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    .filter-btn:hover {
+        background: #1d4ed8;
+        transform: translateY(-1px);
+    }
+    
+    .clear-btn {
+        padding: 0.7rem 1.5rem;
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+        display: inline-block;
+        height: 44px;
+        line-height: 1.2;
+    }
+    
+    .clear-btn:hover {
+        background: #e2e8f0;
+    }
+    
+    .results-count {
+        margin-bottom: 1.5rem;
+        color: #6b7280;
+        font-size: 0.9rem;
     }
     
     .courses-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-        gap: 2rem;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 1.8rem;
     }
     
     .course-card {
         background: white;
-        border-radius: 15px;
+        border-radius: 20px;
         overflow: hidden;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        transition: transform 0.3s, box-shadow 0.3s;
-        height: fit-content;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border: 1px solid #e5e7eb;
+        transition: all 0.3s;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
     }
     
     .course-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+        transform: translateY(-4px);
+        box-shadow: 0 12px 24px rgba(0,0,0,0.1);
     }
     
     .course-image {
-        width: 100%;
-        height: 200px;
+        height: 180px;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 3.5rem;
         color: white;
-        font-size: 4rem;
     }
     
     .course-image img {
@@ -157,180 +214,179 @@ $result = mysqli_query($conn, $sql);
         object-fit: cover;
     }
     
-    .course-content {
-        padding: 1.8rem;
+    .course-badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
     }
     
-    .category-badge {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 0.3rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 500;
-        display: inline-block;
-        margin-bottom: 1rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+    .badge-free {
+        background: #d1fae5;
+        color: #10b981;
+    }
+    
+    .badge-paid {
+        background: #fef3c7;
+        color: #f59e0b;
+    }
+    
+    .badge-enrolled {
+        background: #e0e7ff;
+        color: #2563eb;
+    }
+    
+    .course-content {
+        padding: 1.5rem;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
     }
     
     .course-title {
-        font-size: 1.3rem;
-        margin: 0.5rem 0 1rem 0;
-        color: #333;
+        font-size: 1.2rem;
         font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 0.5rem;
         line-height: 1.4;
     }
     
+    .course-instructor {
+        color: #6b7280;
+        font-size: 0.85rem;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
     .course-description {
-        color: #666;
-        margin-bottom: 1.2rem;
-        line-height: 1.6;
-        font-size: 0.95rem;
+        color: #6b7280;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        margin-bottom: 1rem;
+        flex: 1;
     }
     
     .course-meta {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin: 1.2rem 0;
+        margin: 1rem 0 0;
         padding-top: 1rem;
-        border-top: 2px solid #f0f0f0;
-        color: #666;
+        border-top: 1px solid #e5e7eb;
     }
     
-    .instructor-info {
+    .course-price {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #2563eb;
+    }
+    
+    .course-price.free {
+        color: #10b981;
+    }
+    
+    .course-level {
+        font-size: 0.8rem;
+        color: #94a3b8;
         display: flex;
         align-items: center;
-        gap: 5px;
-        color: #999;
-        font-size: 0.95rem;
+        gap: 4px;
     }
     
-    .btn-enroll {
+    .btn-view {
         display: block;
         width: 100%;
-        padding: 1rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        text-decoration: none;
+        padding: 0.75rem;
         text-align: center;
-        border-radius: 8px;
-        font-size: 1rem;
+        border-radius: 12px;
         font-weight: 600;
-        transition: transform 0.3s, box-shadow 0.3s;
-        border: none;
-        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.3s;
         margin-top: 1rem;
+        background: #2563eb;
+        color: white;
     }
     
-    .btn-enroll:hover {
+    .btn-view:hover {
+        background: #1d4ed8;
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
     }
     
     .btn-enrolled {
-        display: block;
-        width: 100%;
-        padding: 1rem;
-        background: #28a745;
-        color: white;
-        text-align: center;
-        border-radius: 8px;
-        font-size: 1rem;
-        font-weight: 600;
-        border: none;
-        margin-top: 1rem;
+        background: #10b981;
+        cursor: default;
     }
     
-    .course-footer {
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid #f0f0f0;
-        display: flex;
-        gap: 1rem;
-        color: #999;
-        font-size: 0.85rem;
-    }
-    
-    .footer-item {
-        display: flex;
-        align-items: center;
-        gap: 5px;
+    .btn-enrolled:hover {
+        background: #10b981;
+        transform: none;
     }
     
     .empty-state {
-        background: white;
-        border-radius: 15px;
-        padding: 4rem 2rem;
         text-align: center;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        grid-column: 1/-1;
+        padding: 4rem;
+        background: white;
+        border-radius: 20px;
+        border: 1px solid #e5e7eb;
     }
     
     .empty-icon {
-        font-size: 5rem;
+        font-size: 4rem;
         margin-bottom: 1rem;
     }
     
     .empty-title {
-        color: #333;
-        font-size: 1.8rem;
-        margin-bottom: 1rem;
+        font-size: 1.3rem;
+        color: #1f2937;
+        margin-bottom: 0.5rem;
     }
     
     .empty-text {
-        color: #666;
-        font-size: 1.1rem;
-        margin-bottom: 2rem;
+        color: #6b7280;
+        margin-bottom: 1.5rem;
     }
     
-    .clear-btn {
-        display: inline-block;
-        padding: 1rem 2rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        text-decoration: none;
-        border-radius: 8px;
-        font-weight: 600;
-        transition: transform 0.3s;
-    }
-    
-    .clear-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-    }
-    
-    .results-count {
-        text-align: center;
-        color: white;
-        margin-top: 2rem;
-        font-size: 0.95rem;
-        opacity: 0.9;
+    @media (max-width: 768px) {
+        .marketplace-container {
+            padding: 0 1rem;
+        }
+        .filter-form {
+            flex-direction: column;
+        }
+        .filter-group {
+            width: 100%;
+        }
+        .courses-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
-<div class="courses-wrapper">
-    <div class="courses-container">
+<div class="marketplace-wrapper">
+    <div class="marketplace-container">
         
-        <h1 class="page-title">Browse Courses</h1>
+        <div class="page-header">
+            <h1 class="page-title">📚 All Courses</h1>
+            <p class="page-subtitle">Discover 20+ courses from expert instructors</p>
+        </div>
         
-        <!-- Search and Filter Section -->
-        <div class="search-section">
-            <form method="GET" action="" class="search-form">
-                <div class="form-group">
-                    <label for="search" class="form-label">Search Courses</label>
-                    <input type="text" 
-                           id="search"
-                           name="search" 
-                           class="form-input"
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <form method="GET" action="" class="filter-form">
+                <div class="filter-group">
+                    <label for="search">🔍 Search</label>
+                    <input type="text" id="search" name="search" class="filter-input" 
                            placeholder="Search by title or description..." 
                            value="<?php echo htmlspecialchars($search); ?>">
                 </div>
                 
-                <div class="form-group">
-                    <label for="category" class="form-label">Category</label>
-                    <select name="category" id="category" class="form-select">
+                <div class="filter-group">
+                    <label for="category">📂 Category</label>
+                    <select name="category" id="category" class="filter-select">
                         <option value="">All Categories</option>
                         <option value="Programming" <?php echo $category == 'Programming' ? 'selected' : ''; ?>>Programming</option>
                         <option value="Web Development" <?php echo $category == 'Web Development' ? 'selected' : ''; ?>>Web Development</option>
@@ -339,123 +395,94 @@ $result = mysqli_query($conn, $sql);
                         <option value="Cybersecurity" <?php echo $category == 'Cybersecurity' ? 'selected' : ''; ?>>Cybersecurity</option>
                         <option value="Database Design" <?php echo $category == 'Database Design' ? 'selected' : ''; ?>>Database Design</option>
                         <option value="Cloud Computing" <?php echo $category == 'Cloud Computing' ? 'selected' : ''; ?>>Cloud Computing</option>
+                        <option value="DevOps" <?php echo $category == 'DevOps' ? 'selected' : ''; ?>>DevOps</option>
                     </select>
                 </div>
                 
-                <button type="submit" class="search-btn">
-                    Search
-                </button>
+                <div class="filter-group">
+                    <label for="price">💰 Price</label>
+                    <select name="price" id="price" class="filter-select">
+                        <option value="">All Courses</option>
+                        <option value="free" <?php echo $price_filter == 'free' ? 'selected' : ''; ?>>Free Only</option>
+                        <option value="paid" <?php echo $price_filter == 'paid' ? 'selected' : ''; ?>>Paid Only</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <button type="submit" class="filter-btn">Apply Filters</button>
+                </div>
+                
+                <div class="filter-group">
+                    <a href="courses.php" class="clear-btn">Clear All</a>
+                </div>
             </form>
         </div>
         
+        <!-- Results Count -->
+        <div class="results-count">
+            📊 Showing <strong><?php echo $total_courses; ?></strong> courses
+        </div>
+        
         <!-- Courses Grid -->
-        <?php if ($result && mysqli_num_rows($result) > 0): ?>
+        <?php if ($total_courses > 0): ?>
             <div class="courses-grid">
                 <?php while ($course = mysqli_fetch_assoc($result)): ?>
                 <div class="course-card">
-                    
-                    <!-- Course Image -->
                     <div class="course-image">
                         <?php if(!empty($course['image_url'])): ?>
-                            <img src="<?php echo htmlspecialchars($course['image_url']); ?>" 
-                                 alt="<?php echo htmlspecialchars($course['title']); ?>">
+                            <img src="<?php echo htmlspecialchars($course['image_url']); ?>" alt="<?php echo htmlspecialchars($course['title']); ?>">
                         <?php else: ?>
-                            📚
+                            <?php echo $course['price'] > 0 ? '💰' : '🎓'; ?>
                         <?php endif; ?>
                     </div>
-                    
-                    <!-- Course Content -->
                     <div class="course-content">
-                        
-                        <!-- Category Badge -->
-                        <?php if(!empty($course['category_name'])): ?>
-                            <span class="category-badge">
-                                <?php echo htmlspecialchars($course['category_name']); ?>
+                        <div>
+                            <span class="course-badge <?php echo $course['price'] > 0 ? 'badge-paid' : 'badge-free'; ?>">
+                                <?php echo $course['price'] > 0 ? '💰 Paid - $' . number_format($course['price'], 2) : '🎁 Free'; ?>
                             </span>
-                        <?php endif; ?>
+                            <?php if($course['is_enrolled']): ?>
+                                <span class="course-badge badge-enrolled">✓ Enrolled</span>
+                            <?php endif; ?>
+                        </div>
                         
-                        <!-- Course Title -->
                         <h3 class="course-title"><?php echo htmlspecialchars($course['title']); ?></h3>
                         
-                        <!-- Course Description -->
+                        <div class="course-instructor">
+                            <span>👨‍🏫</span> <?php echo htmlspecialchars($course['instructor_name']); ?>
+                        </div>
+                        
                         <p class="course-description">
-                            <?php echo htmlspecialchars(substr($course['description'], 0, 120) . '...'); ?>
+                            <?php echo htmlspecialchars(substr($course['description'], 0, 100)); ?>...
                         </p>
                         
-                        <!-- Course Meta (NO PRICE) -->
                         <div class="course-meta">
-                            <span class="instructor-info">
-                                <span>👨‍🏫</span> 
-                                <?php echo htmlspecialchars($course['instructor_name']); ?>
+                            <span class="course-price <?php echo $course['price'] == 0 ? 'free' : ''; ?>">
+                                <?php echo $course['price'] > 0 ? '$' . number_format($course['price'], 2) : 'Free'; ?>
+                            </span>
+                            <span class="course-level">
+                                📊 <?php echo ucfirst($course['level']); ?> • <?php echo $course['duration_hours']; ?> hours
                             </span>
                         </div>
                         
-                        <!-- Enroll Button / Login Prompt -->
-                        <?php if (isset($_SESSION['user_id'])): 
-                            // Check if already enrolled
-                            $check_sql = "SELECT * FROM enrollments WHERE user_id = ? AND course_id = ?";
-                            $stmt = mysqli_prepare($conn, $check_sql);
-                            mysqli_stmt_bind_param($stmt, "ii", $_SESSION['user_id'], $course['id']);
-                            mysqli_stmt_execute($stmt);
-                            $check_result = mysqli_stmt_get_result($stmt);
-                            
-                            if (mysqli_num_rows($check_result) > 0): ?>
-                                <div class="btn-enrolled">
-                                    ✓ Already Enrolled
-                                </div>
-                            <?php else: ?>
-                                <form method="POST" action="enroll.php">
-                                    <input type="hidden" name="course_id" value="<?php echo $course['id']; ?>">
-                                    <button type="submit" class="btn-enroll">
-                                        Enroll Now
-                                    </button>
-                                </form>
-                            <?php endif; ?>
+                        <?php if($course['is_enrolled']): ?>
+                            <a href="course-details.php?id=<?php echo $course['id']; ?>" class="btn-view btn-enrolled">
+                                ✓ Continue Learning
+                            </a>
                         <?php else: ?>
-                            <a href="login.php" class="btn-enroll">
-                                Login to Enroll
+                            <a href="course-details.php?id=<?php echo $course['id']; ?>" class="btn-view">
+                                View Course Details →
                             </a>
                         <?php endif; ?>
-                        
-                        <!-- Additional Course Info -->
-                        <div class="course-footer">
-                            <?php if(!empty($course['level'])): ?>
-                                <span class="footer-item">
-                                    <span>📊</span> 
-                                    <?php echo ucfirst($course['level']); ?>
-                                </span>
-                            <?php endif; ?>
-                            
-                            <?php if(!empty($course['duration_hours'])): ?>
-                                <span class="footer-item">
-                                    <span>⏱️</span> 
-                                    <?php echo $course['duration_hours']; ?> hours
-                                </span>
-                            <?php endif; ?>
-                        </div>
-                        
                     </div>
                 </div>
                 <?php endwhile; ?>
             </div>
         <?php else: ?>
-            <!-- Empty State -->
             <div class="empty-state">
                 <div class="empty-icon">🔍</div>
-                <h3 class="empty-title">No Courses Found</h3>
-                <p class="empty-text">
-                    Try adjusting your search or filter to find what you're looking for.
-                </p>
-                <a href="courses.php" class="clear-btn">
-                    Clear Filters
-                </a>
-            </div>
-        <?php endif; ?>
-        
-        <!-- Results Count -->
-        <?php if ($result && mysqli_num_rows($result) > 0): ?>
-            <div class="results-count">
-                Showing <?php echo mysqli_num_rows($result); ?> course(s)
+                <h3 class="empty-title">No courses found</h3>
+                <p class="empty-text">Try adjusting your search or filter criteria</p>
+                <a href="courses.php" class="btn-view" style="display: inline-block; width: auto; padding: 0.75rem 2rem;">Clear Filters</a>
             </div>
         <?php endif; ?>
         
