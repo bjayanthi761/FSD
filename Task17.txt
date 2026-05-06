@@ -1,0 +1,44 @@
+PRODUCT-SERVICE:SERVER.JS: 
+const express = require("express"); 
+const app = express(); 
+let products = [ 
+    { id: 1, name: "Laptop" }, 
+    { id: 2, name: "Phone" } 
+]; 
+app.get("/products", (req, res) => { 
+    res.json(products); 
+}); 
+app.listen(3001, () => { 
+    console.log("Product Service → http://localhost:3001/products"); 
+}); 
+ORDER-SERVICE:SERVER.JS: 
+const express = require("express"); 
+const axios = require("axios"); 
+const app = express(); 
+app.use(express.json()); 
+let orders = []; 
+app.post("/orders", async (req, res) => { 
+    try { 
+        const response = await axios.get("http://localhost:3001/products"); 
+        const products = response.data; 
+        const order = { 
+            id: Date.now(), 
+            products: products 
+        }; 
+        orders.push(order); 
+        res.json({ 
+            message: "Order created successfully", 
+            order: order 
+        }); 
+    } catch (error) { 
+        res.status(500).json({ 
+            error: "Failed to fetch products from Product Service" 
+        }); 
+    } 
+}); 
+app.get("/orders", (req, res) => { 
+    res.json(orders); 
+}); 
+app.listen(3002, () => { 
+    console.log("Order Service → http://localhost:3002/orders"); 
+});
