@@ -1,0 +1,138 @@
+INDEX.HTML: 
+<!DOCTYPE html> 
+<html> 
+<head> 
+<title>Student CRUD</title> 
+<link rel="stylesheet" href="style.css"> 
+</head> 
+<body> 
+<div class="container"> 
+    <h2>Student CRUD</h2> 
+    <input id="id" placeholder="ID"> 
+    <input id="name" placeholder="Name"> 
+    <input id="course" placeholder="Course"> 
+    <button onclick="addStudent()">Add</button> 
+    <button onclick="updateStudent()">Update</button> 
+    <ul id="list"></ul> 
+</div> 
+<script src="script.js"></script> 
+</body> 
+</html> 
+STYLE.CSS: 
+body { 
+    font-family: 'Segoe UI'; 
+    background: linear-gradient(135deg,#1f1c2c,#928dab); 
+    height: 100vh; 
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+    color:white; 
+} 
+.container { 
+    background: rgba(255,255,255,0.1); 
+    padding:20px; 
+    border-radius:10px; 
+    text-align:center; 
+} 
+input { 
+    display:block; 
+    margin:8px auto; 
+    padding:8px; 
+} 
+button { 
+    margin:5px; 
+    padding:8px; 
+    background:#00c6ff; 
+    border:none; 
+    color:white; 
+} 
+SCRIPT.JS: 
+function addStudent() { 
+    let data = getInput(); 
+    fetch("/add", { 
+        method: "POST", 
+        headers: {"Content-Type":"application/json"}, 
+        body: JSON.stringify(data) 
+    }).then(loadStudents); 
+} 
+function loadStudents() { 
+    fetch("/all") 
+    .then(res => res.json()) 
+    .then(data => { 
+        let list = document.getElementById("list"); 
+        list.innerHTML = ""; 
+        data.forEach(s => { 
+            let li = document.createElement("li"); 
+            li.innerHTML = ` 
+                ${s.id} - ${s.name} (${s.course}) 
+                <button onclick="deleteStudent(${s.id})"> </button> 
+            `; 
+            list.appendChild(li); 
+        }); 
+    }); 
+} 
+function updateStudent() { 
+    let data = getInput(); 
+    fetch("/update", { 
+        method: "PUT", 
+        headers: {"Content-Type":"application/json"}, 
+        body: JSON.stringify(data) 
+    }).then(loadStudents); 
+} 
+function deleteStudent(id) { 
+    fetch(`/delete/${id}`, { method: "DELETE" }) 
+    .then(loadStudents); 
+} 
+function getInput() { 
+    return { 
+id: document.getElementById("id").value, 
+name: document.getElementById("name").value, 
+course: document.getElementById("course").value 
+}; 
+} 
+loadStudents(); 
+SERVER.JS: 
+const express = require("express"); 
+const cors = require("cors"); 
+const db = require("./db"); 
+const app = express(); 
+app.use(cors()); 
+app.use(express.json()); 
+app.use(express.static(__dirname)); 
+// CREATE 
+app.post("/add", (req, res) => { 
+db.add(req.body); 
+res.json({msg:"Added"}); 
+}); 
+// READ 
+app.get("/all", (req, res) => { 
+res.json(db.getAll()); 
+}); 
+// UPDATE 
+app.put("/update", (req, res) => { 
+db.update(req.body); 
+    res.json({msg:"Updated"}); 
+}); 
+// DELETE 
+app.delete("/delete/:id", (req, res) => { 
+    db.remove(req.params.id); 
+    res.json({msg:"Deleted"}); 
+}); 
+app.listen(3000, () => console.log("http://localhost:3000")); 
+DB.JS: 
+let students = []; 
+function add(s) { 
+    students.push(s); 
+} 
+function getAll() { 
+    return students; 
+} 
+function update(updated) { 
+    students = students.map(s => 
+        s.id == updated.id ? updated : s 
+    ); 
+} 
+function remove(id) { 
+    students = students.filter(s => s.id != id); 
+} 
+module.exports = { add, getAll, update, remove };
