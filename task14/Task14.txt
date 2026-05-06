@@ -1,0 +1,87 @@
+INDEX.HTML: 
+<!DOCTYPE html> 
+<html> 
+<head> 
+<title>Microservices App</title> 
+<link rel="stylesheet" href="style.css"> 
+</head> 
+<body> 
+<div class="container"> 
+    <h2>Microservices Demo</h2> 
+    <input id="pname" placeholder="Product Name"> 
+    <button onclick="addProduct()">Add Product</button> 
+    <input id="order" placeholder="Order Item"> 
+    <button onclick="addOrder()">Place Order</button> 
+</div> 
+<script src="script.js"></script> 
+</body> 
+</html> 
+STYLE.CSS: 
+body { 
+    font-family: Arial; 
+    background: #1e1e2f; 
+    color: white; 
+    display:flex; 
+    justify-content:center; 
+    align-items:center; 
+    height:100vh; 
+} 
+.container { 
+    text-align:center; 
+} 
+input { 
+    margin: 5px; 
+    padding: 8px; 
+} 
+button { 
+    padding: 8px; 
+    margin: 5px; 
+    background: #00c6ff; 
+    border: none; 
+} 
+SCRIPT.JS: 
+function addProduct() { 
+    fetch("http://localhost:3001/products", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ name: val("pname") }) 
+    }); 
+} 
+function addOrder() { 
+    fetch("http://localhost:3002/orders", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ item: val("order") }) 
+    }); 
+} 
+function val(id) { 
+    return document.getElementById(id).value; 
+} 
+SERVER.JS: 
+const express = require("express"); 
+const cors = require("cors"); 
+const db = require("./db"); 
+const app = express(); 
+app.use(cors()); 
+app.use(express.json()); 
+// GET products 
+app.get("/products", (req, res) => { 
+res.json(db.getAll()); 
+}); 
+// ADD product 
+app.post("/products", (req, res) => { 
+db.add(req.body); 
+res.json({ msg: "Product added" }); 
+}); 
+app.listen(3001, () => { 
+console.log("Product Service running at http://localhost:3001"); 
+}); 
+DB.JS: 
+let products = []; 
+function add(p) { 
+products.push(p); 
+} 
+function getAll() { 
+return products; 
+} 
+module.exports = { add, getAll };
